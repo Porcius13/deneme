@@ -4,9 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tercihler - wıshya</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⭐</text></svg>">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <!-- Stardos Stencil Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,9 +17,49 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Stardos+Stencil:wght@400;700&display=swap');
     </style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/les-benjamins-theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/product-cards.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern-ui.css') }}">
     <style>
+        :root {
+            /* Les Benjamins inspired color palette - Minimalist Black & White */
+            --bg-primary: #ffffff;
+            --bg-secondary: #fafafa;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --border-color: #e5e5e5;
+            --accent-color: #000000;
+            --accent-hover: #333333;
+            --card-bg: #ffffff;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --success-bg: #f0f0f0;
+            --success-text: #000000;
+            --error-bg: #f0f0f0;
+            --error-text: #000000;
+            --gradient-primary: #000000;
+            --gradient-secondary: #000000;
+            --glass-bg: rgba(255, 255, 255, 1);
+            --glass-border: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --text-primary: #ffffff;
+            --text-secondary: #999999;
+            --border-color: #333333;
+            --accent-color: #ffffff;
+            --accent-hover: #cccccc;
+            --card-bg: #0a0a0a;
+            --shadow: rgba(255, 255, 255, 0.05);
+            --success-bg: #1a1a1a;
+            --success-text: #ffffff;
+            --error-bg: #1a1a1a;
+            --error-text: #ffffff;
+            --gradient-primary: #ffffff;
+            --gradient-secondary: #ffffff;
+            --glass-bg: rgba(0, 0, 0, 1);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
 
         * {
             margin: 0;
@@ -25,116 +68,149 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* Touch-friendly improvements */
+        button,
+        a,
+        input,
+        select,
+        textarea {
+            touch-action: manipulation;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
-            line-height: 1.6;
+            line-height: 1.5;
             transition: background-color 0.3s, color 0.3s;
+            position: relative;
+            overflow-x: hidden;
+            font-weight: 400;
+            letter-spacing: -0.01em;
         }
 
         .header {
             position: sticky;
             top: 0;
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-color);
             z-index: 1000;
             padding: 0;
             transition: all 0.3s ease;
-            box-shadow: 0 8px 32px var(--shadow);
         }
 
         .header-content {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 0 40px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            height: 80px;
+            height: 70px;
         }
 
         .logo {
-            font-family: 'Stardos Stencil', 'Courier New', monospace !important;
-            font-size: 28px;
-            font-weight: bold;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 18px;
+            font-weight: 400;
             text-decoration: none;
             color: var(--text-primary);
-            letter-spacing: 2px;
-            transition: all 0.3s ease;
+            letter-spacing: 0.05em;
+            transition: opacity 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .logo:hover {
+            opacity: 0.6;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 30px;
         }
 
         .nav-btn {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            background: transparent;
             color: var(--text-primary);
-            border: 2px solid var(--glass-border);
-            padding: 12px 24px;
-            border-radius: 25px;
-            font-size: 14px;
-            font-weight: 600;
+            border: none;
+            padding: 0;
+            font-size: 12px;
+            font-weight: 400;
             text-decoration: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 20px var(--shadow);
+            transition: opacity 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         .nav-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px var(--shadow);
-            border-color: var(--accent-color);
+            opacity: 0.6;
         }
 
         .main-content {
-            max-width: 800px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 60px 20px;
+            padding: 60px 40px;
         }
 
         .page-header {
-            text-align: center;
-            margin-bottom: 40px;
+            text-align: left;
+            margin-bottom: 60px;
+            padding: 0;
+            background: transparent;
+            border: none;
+            box-shadow: none;
         }
 
         .page-title {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 10px;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-size: 24px;
+            font-weight: 400;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         .page-subtitle {
-            font-size: 16px;
+            font-size: 14px;
             color: var(--text-secondary);
+            margin-bottom: 40px;
+            font-weight: 400;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .preferences-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 25px;
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 20px 60px var(--shadow);
-            padding: 40px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0;
+            padding: 60px 50px;
             margin-bottom: 30px;
+            box-shadow: none;
+            transition: all 0.3s ease;
+        }
+
+        .preferences-card:hover {
+            border-color: var(--text-primary);
         }
 
         .preference-section {
-            margin-bottom: 40px;
+            margin-bottom: 50px;
+        }
+
+        .preference-section:last-child {
+            margin-bottom: 0;
         }
 
         .section-title {
-            font-size: 20px;
-            font-weight: 700;
+            font-size: 14px;
+            font-weight: 400;
             color: var(--text-primary);
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid var(--glass-border);
+            margin-bottom: 30px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         .preference-item {
@@ -142,7 +218,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 20px 0;
-            border-bottom: 1px solid var(--glass-border);
+            border-bottom: 1px solid var(--border-color);
         }
 
         .preference-item:last-child {
@@ -154,26 +230,30 @@
         }
 
         .preference-label {
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 400;
             color: var(--text-primary);
-            margin-bottom: 5px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
 
         .preference-description {
-            font-size: 14px;
+            font-size: 11px;
             color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .preference-control {
-            margin-left: 20px;
+            margin-left: 30px;
         }
 
         .toggle-switch {
             position: relative;
             display: inline-block;
-            width: 60px;
-            height: 34px;
+            width: 50px;
+            height: 28px;
         }
 
         .toggle-switch input {
@@ -189,90 +269,106 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: var(--glass-border);
-            transition: .4s;
-            border-radius: 34px;
+            background-color: var(--border-color);
+            transition: .3s;
+            border-radius: 0;
         }
 
         .slider:before {
             position: absolute;
             content: "";
-            height: 26px;
-            width: 26px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
+            height: 22px;
+            width: 22px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-primary);
+            transition: .3s;
+            border-radius: 0;
         }
 
         input:checked + .slider {
-            background-color: var(--accent-color);
+            background-color: var(--text-primary);
         }
 
         input:checked + .slider:before {
-            transform: translateX(26px);
+            background-color: var(--bg-primary);
+            transform: translateX(22px);
         }
 
         .select-control {
-            padding: 12px 20px;
-            border: 2px solid var(--glass-border);
-            border-radius: 15px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            padding: 10px 0;
+            border: none;
+            border-bottom: 1px solid var(--border-color);
+            background: transparent;
             color: var(--text-primary);
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 400;
             cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 20px var(--shadow);
+            transition: border-color 0.2s ease;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
             min-width: 150px;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23000' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right center;
+            padding-right: 20px;
+        }
+
+        [data-theme="dark"] .select-control {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23fff' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
         }
 
         .select-control:focus {
             outline: none;
-            border-color: var(--accent-color);
-            box-shadow: 0 8px 30px var(--shadow);
-            transform: translateY(-2px);
-        }
-
-        .btn {
-            background: var(--gradient-primary);
-            color: white;
-            border: none;
-            padding: 16px 30px;
-            border-radius: 15px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 8px 30px rgba(102, 126, 234, 0.3);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-secondary {
-            background: var(--glass-bg);
-            color: var(--text-primary);
-            border: 2px solid var(--glass-border);
-        }
-
-        .btn-secondary:hover {
-            border-color: var(--accent-color);
-            transform: translateY(-2px);
+            border-bottom-color: var(--text-primary);
         }
 
         .form-actions {
             display: flex;
             gap: 20px;
-            justify-content: center;
-            margin-top: 40px;
+            justify-content: flex-start;
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .btn {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 0;
+            font-size: 12px;
+            font-weight: 400;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-decoration: none;
+            display: inline-block;
+            font-family: inherit;
+            min-height: 44px;
+        }
+
+        .btn:hover {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
         }
 
         .flash-messages {
@@ -280,87 +376,58 @@
         }
 
         .flash-message {
-            padding: 16px 20px;
-            border-radius: 15px;
-            margin-bottom: 15px;
-            font-weight: 600;
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            box-shadow: 0 8px 30px var(--shadow);
-            animation: slideInRight 0.5s ease;
+            padding: 12px 16px;
+            border-radius: 0;
+            margin-bottom: 10px;
+            font-weight: 400;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            box-shadow: none;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-primary);
+            border-left: 2px solid var(--text-primary);
         }
 
-        @keyframes slideInRight {
-            from {
-                opacity: 0;
-                transform: translateX(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        .flash-success {
-            background: rgba(212, 237, 218, 0.9);
-            color: var(--success-text);
-            border: 2px solid rgba(195, 230, 203, 0.5);
-        }
-
-        .flash-error {
-            background: rgba(248, 215, 218, 0.9);
-            color: var(--error-text);
-            border: 2px solid rgba(245, 198, 203, 0.5);
-        }
-
-        .theme-preview {
-            width: 100px;
-            height: 60px;
-            border-radius: 10px;
-            border: 2px solid var(--glass-border);
-            margin-left: 20px;
-            background: var(--bg-primary);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .theme-preview::before {
-            content: '';
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            width: 20px;
-            height: 20px;
-            background: var(--accent-color);
-            border-radius: 50%;
-        }
-
-        .theme-preview::after {
-            content: '';
-            position: absolute;
-            top: 15px;
-            left: 40px;
-            width: 30px;
-            height: 10px;
-            background: var(--text-secondary);
-            border-radius: 5px;
+        .flash-success,
+        .flash-error,
+        .flash-warning,
+        .flash-info {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-left: 2px solid var(--text-primary);
+            color: var(--text-primary);
         }
 
         @media (max-width: 768px) {
             .header-content {
-                padding: 0 15px;
+                padding: 0 20px;
+                height: 60px;
+            }
+
+            .header-actions {
+                gap: 20px;
+            }
+
+            .nav-btn {
+                font-size: 11px;
             }
 
             .main-content {
-                padding: 40px 15px;
+                padding: 40px 20px;
             }
 
             .preferences-card {
-                padding: 30px 20px;
+                padding: 40px 30px;
             }
 
             .page-title {
-                font-size: 24px;
+                font-size: 20px;
+            }
+
+            .page-subtitle {
+                font-size: 12px;
             }
 
             .preference-item {
@@ -376,12 +443,37 @@
 
             .form-actions {
                 flex-direction: column;
-                align-items: center;
+                align-items: flex-start;
             }
 
             .btn {
                 width: 100%;
-                max-width: 300px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-content {
+                padding: 0 15px;
+            }
+
+            .header-actions {
+                gap: 15px;
+            }
+
+            .main-content {
+                padding: 30px 15px;
+            }
+
+            .preferences-card {
+                padding: 30px 20px;
+            }
+
+            .page-title {
+                font-size: 18px;
+            }
+
+            .page-subtitle {
+                font-size: 11px;
             }
         }
     </style>
@@ -391,7 +483,7 @@
     <header class="header">
         <div class="header-content">
             <a href="/" class="logo">wıshya</a>
-            <div style="display: flex; gap: 20px;">
+            <div class="header-actions">
                 <a href="/dashboard" class="nav-btn">Dashboard</a>
                 <a href="/profile" class="nav-btn">Profil</a>
                 <a href="/logout" class="nav-btn">Çıkış</a>
@@ -420,7 +512,7 @@
 
         <form method="POST" class="preferences-card">
             <div class="preference-section">
-                <h2 class="section-title">🎨 Görünüm</h2>
+                <h2 class="section-title">Görünüm</h2>
                 
                 <div class="preference-item">
                     <div class="preference-info">
@@ -451,7 +543,7 @@
             </div>
 
             <div class="preference-section">
-                <h2 class="section-title">🔔 Bildirimler</h2>
+                <h2 class="section-title">Bildirimler</h2>
                 
                 <div class="preference-item">
                     <div class="preference-info">
@@ -481,7 +573,7 @@
             </div>
 
             <div class="preference-section">
-                <h2 class="section-title">🔒 Gizlilik</h2>
+                <h2 class="section-title">Gizlilik</h2>
                 
                 <div class="preference-item">
                     <div class="preference-info">
@@ -511,10 +603,16 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn">💾 Tercihleri Kaydet</button>
-                <a href="/profile" class="btn btn-secondary">↩️ Geri Dön</a>
+                <button type="submit" class="btn">Tercihleri Kaydet</button>
+                <a href="/profile" class="btn btn-secondary">Geri Dön</a>
             </div>
         </form>
     </main>
+
+    <script>
+        // Dark mode functionality
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
 </body>
-</html> 
+</html>
