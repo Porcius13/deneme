@@ -1523,6 +1523,246 @@ async def extract_with_site_config(page, url, site_config):
                     traceback.print_exc()
                     old_price = None
             
+            # Hepsiburada.com için özel fiyat çıkarma mantığı
+            elif "hepsiburada.com" in url:
+                print(f"[DEBUG] Hepsiburada için özel fiyat çıkarma başlıyor")
+                try:
+                    # Önce JSON-LD structured data'dan fiyat çek (en güvenilir)
+                    try:
+                        json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
+                        for script in json_ld_scripts:
+                            script_content = await script.text_content()
+                            if script_content and ('offers' in script_content or 'price' in script_content):
+                                import json
+                                try:
+                                    data = json.loads(script_content)
+                                    
+                                    # Product objesi içinde offers
+                                    if isinstance(data, dict):
+                                        if 'offers' in data:
+                                            offers = data['offers']
+                                            if isinstance(offers, dict) and 'price' in offers:
+                                                price_value = offers['price']
+                                                if isinstance(price_value, (int, float)) and price_value > 0:
+                                                    price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    print(f"[DEBUG] Hepsiburada JSON-LD fiyat bulundu: {price}")
+                                                    
+                                                    # Eski fiyat kontrolü
+                                                    if 'priceCurrency' in offers and 'highPrice' in offers:
+                                                        high_price = offers.get('highPrice')
+                                                        if high_price and high_price != price_value:
+                                                            old_price = f"{high_price:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                            print(f"[DEBUG] Hepsiburada JSON-LD eski fiyat bulundu: {old_price}")
+                                                    break
+                                            elif isinstance(offers, list) and len(offers) > 0:
+                                                if 'price' in offers[0]:
+                                                    price_value = offers[0]['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Hepsiburada JSON-LD fiyat bulundu: {price}")
+                                                        break
+                                        # @graph içinde Product
+                                        elif '@graph' in data:
+                                            for item in data['@graph']:
+                                                if isinstance(item, dict) and item.get('@type') == 'Product' and 'offers' in item:
+                                                    offers = item['offers']
+                                                    if isinstance(offers, dict) and 'price' in offers:
+                                                        price_value = offers['price']
+                                                        if isinstance(price_value, (int, float)) and price_value > 0:
+                                                            price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                            print(f"[DEBUG] Hepsiburada JSON-LD fiyat bulundu (@graph): {price}")
+                                                            break
+                                    # Array içinde Product
+                                    elif isinstance(data, list):
+                                        for item in data:
+                                            if isinstance(item, dict) and item.get('@type') == 'Product' and 'offers' in item:
+                                                offers = item['offers']
+                                                if isinstance(offers, dict) and 'price' in offers:
+                                                    price_value = offers['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Hepsiburada JSON-LD fiyat bulundu (array): {price}")
+                                                        break
+                                except json.JSONDecodeError:
+                                    continue
+                    except Exception as e:
+                        print(f"[DEBUG] Hepsiburada JSON-LD fiyat çekme hatası: {e}")
+                    
+                    # JSON-LD'den bulunamadıysa meta tag'lerden çek
+                    if not price:
+                        try:
+                            # Hepsiburada'nın meta tag'leri
+                            meta_selectors = [
+                                'meta[property="product:price:amount"]',
+                                'meta[name="twitter:data1"]',
+                                'meta[property="og:price:amount"]'
+                            ]
+                            for meta_selector in meta_selectors:
+                                meta_price = await page.query_selector(meta_selector)
+                                if meta_price:
+                                    price_value = await meta_price.get_attribute('content')
+                                    if price_value:
+                                        try:
+                                            price_float = float(price_value)
+                                            if price_float > 0:
+                                                price = f"{price_float:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                print(f"[DEBUG] Hepsiburada meta fiyat bulundu: {price}")
+                                                break
+                                        except:
+                                            pass
+                        except Exception as e:
+                            print(f"[DEBUG] Hepsiburada meta fiyat çekme hatası: {e}")
+                    
+                    # Meta'dan da bulunamadıysa DOM'dan çek - Hepsiburada selector'ları
+                    if not price:
+                        hepsiburada_price_selectors = [
+                            "[data-testid='price-current-price']",
+                            ".price-value",
+                            ".product-price",
+                            "[data-testid='product-price']",
+                            ".price",
+                            "span.price",
+                            ".product-price-value",
+                            "[class*='price'][class*='current']",
+                            "[class*='Price'][class*='Current']",
+                            ".oldPrice + .price",
+                            ".salePrice",
+                            "[data-bind*='price']"
+                        ]
+                        
+                        all_found_prices = []
+                        
+                        for selector in hepsiburada_price_selectors:
+                            try:
+                                price_elements = await page.query_selector_all(selector)
+                                for element in price_elements:
+                                    price_text = await element.text_content()
+                                    
+                                    if price_text and price_text.strip():
+                                        price_text = price_text.strip()
+                                        print(f"[DEBUG] Hepsiburada price element text: '{price_text[:100]}...' (selector: {selector})")
+                                        
+                                        # Hepsiburada fiyat formatları: "₺12.999,00", "12.999,00", "12999.00", vb.
+                                        # Türkçe format (12.999,00)
+                                        price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # İngilizce format (12,999.00)
+                                            price_match = re.search(r'([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # Basit format (12999.00 veya 12999,00)
+                                            price_match = re.search(r'([0-9]+[.,][0-9]{2})', price_text)
+                                        if not price_match:
+                                            # Sadece sayı (12999)
+                                            price_match = re.search(r'([0-9]{3,})', price_text)
+                                        
+                                        if price_match:
+                                            found_price_str = price_match.group(1)
+                                            try:
+                                                # Fiyatı sayıya çevir
+                                                if ',' in found_price_str and '.' in found_price_str:
+                                                    # Format: 12,999.00 (İngilizce)
+                                                    price_clean = found_price_str.replace(',', '')
+                                                elif '.' in found_price_str and ',' not in found_price_str:
+                                                    # Format: 12.999,00 (Türkçe)
+                                                    price_clean = found_price_str.replace('.', '').replace(',', '.')
+                                                elif ',' in found_price_str:
+                                                    # Format: 12999,00
+                                                    price_clean = found_price_str.replace(',', '.')
+                                                else:
+                                                    # Format: 12999.00 veya 12999
+                                                    price_clean = found_price_str
+                                                
+                                                price_num = float(price_clean)
+                                                
+                                                # Mantıklı fiyat aralığı kontrolü (10 TL - 1.000.000 TL)
+                                                if 10 <= price_num <= 1000000:
+                                                    # Türkçe formatına çevir (12.999,00 TL)
+                                                    if price_num >= 1000:
+                                                        formatted_price = f"{price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        formatted_price = f"{price_num:.2f} TL".replace('.', ',')
+                                                    
+                                                    all_found_prices.append({
+                                                        'price': formatted_price,
+                                                        'price_num': price_num,
+                                                        'text': price_text,
+                                                        'selector': selector,
+                                                        'priority': hepsiburada_price_selectors.index(selector)
+                                                    })
+                                                    print(f"[DEBUG] Hepsiburada fiyat adayı bulundu: {formatted_price} ({price_num} TL) (selector: {selector})")
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Hepsiburada price selector hatası {selector}: {e}")
+                                continue
+                        
+                        # En yüksek öncelikli fiyatı seç
+                        if all_found_prices:
+                            # Önce öncelik sırasına göre sırala (düşük index = yüksek öncelik)
+                            all_found_prices.sort(key=lambda x: x['priority'])
+                            
+                            # İlk (en yüksek öncelikli) fiyatı seç
+                            selected = all_found_prices[0]
+                            price = selected['price']
+                            print(f"[DEBUG] Hepsiburada fiyat seçildi: {price} (selector: {selected['selector']}, öncelik: {selected['priority']})")
+                            
+                            # Eski fiyat kontrolü - oldPrice veya strike-through fiyatlar
+                            try:
+                                old_price_selectors = [
+                                    "[data-testid='price-old-price']",
+                                    ".oldPrice",
+                                    ".product-old-price",
+                                    "[class*='old'][class*='price']",
+                                    "[class*='Old'][class*='Price']",
+                                    ".price-strike",
+                                    "s.price",
+                                    "del.price"
+                                ]
+                                
+                                for old_selector in old_price_selectors:
+                                    strike_elements = await page.query_selector_all(old_selector)
+                                    for element in strike_elements:
+                                        old_price_text = await element.text_content()
+                                        
+                                        if old_price_text and old_price_text.strip():
+                                            old_price_text = old_price_text.strip()
+                                            old_price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}|[0-9]+[.,][0-9]{2})', old_price_text)
+                                            if old_price_match:
+                                                old_price_str = old_price_match.group(1)
+                                                try:
+                                                    if ',' in old_price_str and '.' in old_price_str:
+                                                        old_price_clean = old_price_str.replace(',', '')
+                                                    elif '.' in old_price_str:
+                                                        old_price_clean = old_price_str.replace('.', '').replace(',', '.')
+                                                    else:
+                                                        old_price_clean = old_price_str.replace(',', '.')
+                                                    
+                                                    old_price_num = float(old_price_clean)
+                                                    if old_price_num > selected['price_num'] and 10 <= old_price_num <= 1000000:
+                                                        if old_price_num >= 1000:
+                                                            old_price = f"{old_price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        else:
+                                                            old_price = f"{old_price_num:.2f} TL".replace('.', ',')
+                                                        print(f"[DEBUG] Hepsiburada eski fiyat bulundu: {old_price}")
+                                                        break
+                                                except ValueError:
+                                                    continue
+                                    if old_price:
+                                        break
+                            except Exception as e:
+                                print(f"[DEBUG] Hepsiburada eski fiyat çekme hatası: {e}")
+                        else:
+                            print(f"[DEBUG] Hepsiburada hiç fiyat bulunamadı")
+                    
+                    if not old_price:
+                        print(f"[DEBUG] Hepsiburada eski fiyat bulunamadı")
+                
+                except Exception as e:
+                    print(f"[DEBUG] Hepsiburada özel fiyat çıkarma hatası: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    old_price = None
+            
             # Altınyıldız Classics için özel fiyat çıkarma mantığı
             elif "altinyildizclassics.com" in url:
                 print(f"[DEBUG] Altınyıldız Classics için özel fiyat çıkarma başlıyor")
@@ -2075,6 +2315,170 @@ async def extract_with_site_config(page, url, site_config):
                         print(f"[DEBUG] Les Benjamins hiç ürün görseli bulunamadı, fallback'e geçiliyor")
                 except Exception as e:
                     print(f"[DEBUG] Les Benjamins özel görsel çekme hatası: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Hepsiburada.com için özel görsel çekme mantığı
+            if "hepsiburada.com" in url:
+                print(f"[DEBUG] Hepsiburada için özel görsel çekme başlıyor")
+                try:
+                    # Tüm potansiyel ürün görsellerini topla
+                    all_product_images = []
+                    
+                    # Öncelikli selector'lar - Hepsiburada'ya özel
+                    priority_selectors = [
+                        # Ana ürün görseli selector'ları (en öncelikli)
+                        "[data-testid='product-image'] img",
+                        "[data-testid='productImage'] img",
+                        ".product-image img",
+                        ".product__image img",
+                        ".product-gallery img",
+                        ".product-photos img",
+                        ".product-media img",
+                        ".product-slider img",
+                        ".product-carousel img",
+                        ".swiper-slide img",
+                        ".slick-slide img",
+                        # Genel ürün görseli class'ları
+                        "img.product-image",
+                        "img.product__image",
+                        "img[data-testid='product-image']",
+                        "img[data-testid='productImage']",
+                        # Hepsiburada özel selector'ları
+                        ".gallery img",
+                        ".productGallery img",
+                        ".imageGallery img",
+                        "[class*='product'][class*='image'] img",
+                        "[class*='Product'][class*='Image'] img",
+                        "[id*='product'][id*='image'] img",
+                        "[id*='Product'][id*='Image'] img"
+                    ]
+                    
+                    for selector in priority_selectors:
+                        try:
+                            img_elements = await page.query_selector_all(selector)
+                            for img_element in img_elements:
+                                try:
+                                    # src kontrolü
+                                    src = await img_element.get_attribute('src')
+                                    
+                                    # data-src kontrolü (lazy loading)
+                                    data_src = await img_element.get_attribute('data-src')
+                                    
+                                    # srcset kontrolü
+                                    srcset = await img_element.get_attribute('srcset')
+                                    
+                                    # srcset'ten en yüksek kaliteli görseli al
+                                    if srcset:
+                                        srcset_parts = srcset.split(',')
+                                        highest_res = None
+                                        max_width = 0
+                                        
+                                        for part in srcset_parts:
+                                            part = part.strip()
+                                            if ' ' in part:
+                                                url_part, size_part = part.rsplit(' ', 1)
+                                                if 'w' in size_part:
+                                                    try:
+                                                        width = int(size_part.replace('w', ''))
+                                                        if width > max_width:
+                                                            max_width = width
+                                                            highest_res = url_part.strip()
+                                                    except ValueError:
+                                                        continue
+                                        
+                                        if highest_res:
+                                            src = highest_res
+                                    
+                                    # data-src kontrolü (lazy loading)
+                                    if data_src and not src:
+                                        src = data_src
+                                    
+                                    if src:
+                                        # Relative URL'yi absolute yap
+                                        if src.startswith('//'):
+                                            src = 'https:' + src
+                                        elif src.startswith('/'):
+                                            from urllib.parse import urlparse
+                                            parsed = urlparse(url)
+                                            src = f"{parsed.scheme}://{parsed.netloc}{src}"
+                                        
+                                        # Skip keyword kontrolü
+                                        skip_keywords = ['logo', 'banner', 'icon', 'header', 'footer', 'ad', 'promo', 'campaign', 'placeholder', 'loading']
+                                        src_lower = src.lower()
+                                        
+                                        if any(keyword in src_lower for keyword in skip_keywords):
+                                            continue
+                                        
+                                        # Hepsiburada domain kontrolü
+                                        if 'hepsiburada.com' in src or 'hbimg.com' in src or 'cdn' in src:
+                                            # Dosya adı kontrolü
+                                            filename = src.split('/')[-1].split('?')[0]
+                                            # Ürün görseli genellikle ürün kodunu içerir veya sayısal ID içerir
+                                            if re.match(r'^[A-Z0-9_-]+\.(jpg|jpeg|webp|png)$', filename, re.IGNORECASE) or 'product' in src_lower or 'urun' in src_lower:
+                                                all_product_images.append({
+                                                    'url': src,
+                                                    'width': max_width if max_width > 0 else 0,
+                                                    'selector': selector,
+                                                    'priority': priority_selectors.index(selector)
+                                                })
+                                                print(f"[DEBUG] Hepsiburada ürün görseli adayı bulundu: {src} (width: {max_width}, priority: {priority_selectors.index(selector)})")
+                        except Exception as e:
+                            print(f"[DEBUG] Hepsiburada görsel selector hatası {selector}: {e}")
+                            continue
+                    
+                    # En uygun görseli seç
+                    if all_product_images:
+                        # Önce priority'ye göre sırala (düşük index = yüksek öncelik)
+                        all_product_images.sort(key=lambda x: x.get('priority', 999))
+                        
+                        # Aynı priority'de birden fazla görsel varsa, width'e göre sırala (en yüksek kalite)
+                        max_priority = all_product_images[0].get('priority', 999)
+                        same_priority_images = [img for img in all_product_images if img.get('priority', 999) == max_priority]
+                        if len(same_priority_images) > 1:
+                            same_priority_images.sort(key=lambda x: x['width'], reverse=True)
+                        
+                        # En yüksek öncelikli ve en yüksek kaliteli görseli seç
+                        selected_image = same_priority_images[0] if same_priority_images else all_product_images[0]
+                        image = selected_image['url']
+                        print(f"[DEBUG] Hepsiburada ürün görseli seçildi: {image} (width: {selected_image['width']}, priority: {selected_image.get('priority', 0)})")
+                    else:
+                        print(f"[DEBUG] Hepsiburada hiç ürün görseli bulunamadı, fallback'e geçiliyor")
+                        
+                        # Fallback: Genel img selector'ları
+                        try:
+                            fallback_selectors = [
+                                "img[src*='product']",
+                                "img[src*='urun']",
+                                "img[src*='cdn']",
+                                "img[data-src*='product']",
+                                "img[data-src*='urun']",
+                                "img[data-src*='cdn']"
+                            ]
+                            
+                            for selector in fallback_selectors:
+                                fallback_elements = await page.query_selector_all(selector)
+                                for element in fallback_elements:
+                                    src = await element.get_attribute('src') or await element.get_attribute('data-src')
+                                    if src:
+                                        if src.startswith('//'):
+                                            src = 'https:' + src
+                                        elif src.startswith('/'):
+                                            from urllib.parse import urlparse
+                                            parsed = urlparse(url)
+                                            src = f"{parsed.scheme}://{parsed.netloc}{src}"
+                                        
+                                        skip_keywords = ['logo', 'banner', 'icon', 'header', 'footer', 'ad', 'promo', 'campaign', 'placeholder', 'loading']
+                                        if not any(keyword in src.lower() for keyword in skip_keywords):
+                                            image = src
+                                            print(f"[DEBUG] Hepsiburada fallback görsel bulundu: {image}")
+                                            break
+                                if image:
+                                    break
+                        except Exception as e:
+                            print(f"[DEBUG] Hepsiburada fallback görsel çekme hatası: {e}")
+                except Exception as e:
+                    print(f"[DEBUG] Hepsiburada özel görsel çekme hatası: {e}")
                     import traceback
                     traceback.print_exc()
             
