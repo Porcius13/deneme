@@ -3996,8 +3996,52 @@ def profile_collections():
 @login_required
 def profile_favorites():
     """Kullanıcının favorileri sayfası"""
-    products = current_user.get_products()
+    products = current_user.get_favorite_products()
     return render_template("profile_favorites.html", products=products)
+
+@app.route("/product/<product_id>/favorite-status")
+@login_required
+def favorite_status(product_id):
+    """Ürünün favori durumunu kontrol et"""
+    try:
+        # Ürünün kullanıcıya ait olduğunu kontrol et
+        product = Product.get_by_id(product_id)
+        if not product or product.user_id != current_user.id:
+            return jsonify({"success": False, "message": "Ürün bulunamadı"}), 404
+        
+        is_favorite = current_user.is_product_favorite(product_id)
+        return jsonify({"success": True, "is_favorite": is_favorite})
+    except Exception as e:
+        print(f"[HATA] Favori durum kontrol hatası: {e}")
+        return jsonify({"success": False, "message": f"Hata: {str(e)}"}), 500
+
+@app.route("/product/<product_id>/toggle-favorite", methods=["POST"])
+@login_required
+def toggle_favorite(product_id):
+    """Ürünü favorilere ekle/çıkar"""
+    try:
+        # Ürünün kullanıcıya ait olduğunu kontrol et
+        product = Product.get_by_id(product_id)
+        if not product or product.user_id != current_user.id:
+            return jsonify({"success": False, "message": "Ürün bulunamadı"}), 404
+        
+        is_favorite = current_user.is_product_favorite(product_id)
+        
+        if is_favorite:
+            # Favorilerden çıkar
+            if current_user.remove_from_favorites(product_id):
+                return jsonify({"success": True, "message": "Favorilerden çıkarıldı", "is_favorite": False})
+            else:
+                return jsonify({"success": False, "message": "Favorilerden çıkarılamadı"}), 400
+        else:
+            # Favorilere ekle
+            if current_user.add_to_favorites(product_id):
+                return jsonify({"success": True, "message": "Favorilere eklendi", "is_favorite": True})
+            else:
+                return jsonify({"success": False, "message": "Favorilere eklenemedi"}), 400
+    except Exception as e:
+        print(f"[HATA] Favori toggle hatası: {e}")
+        return jsonify({"success": False, "message": f"Hata: {str(e)}"}), 500
 
 @app.route("/profile/<profile_url>")
 def public_profile(profile_url):

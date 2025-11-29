@@ -292,11 +292,24 @@
 .favorite-icon:hover {
     transform: scale(1.1);
     background: rgba(255, 255, 255, 1);
+    opacity: 1;
+}
+
+.favorite-icon.favorite-active {
+    opacity: 1;
+    background: rgba(255, 255, 255, 1);
+    border-color: var(--text-primary);
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .favorite-icon .heart {
     font-size: 14px;
     color: #000000;
+    pointer-events: none;
+}
+
+.favorite-icon.favorite-active .heart {
+    color: #ff4757;
 }
 
 [data-theme="dark"] .favorite-icon {
@@ -304,8 +317,20 @@
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+[data-theme="dark"] .favorite-icon {
+    opacity: 0.7;
+}
+
+[data-theme="dark"] .favorite-icon:hover {
+    opacity: 1;
+}
+
 [data-theme="dark"] .favorite-icon .heart {
     color: #ffffff;
+}
+
+[data-theme="dark"] .favorite-icon.favorite-active .heart {
+    color: #ff4757;
 }
 
 [data-theme="dark"] .tracking-alarm-icon {

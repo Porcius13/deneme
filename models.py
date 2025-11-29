@@ -145,6 +145,19 @@ def init_db():
         )
     ''')
     
+    # Favoriler tablosu
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS favorites (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (product_id) REFERENCES products (id),
+            UNIQUE(user_id, product_id)
+        )
+    ''')
+    
 
     
     conn.commit()
@@ -253,6 +266,65 @@ class User(UserMixin):
     def get_collections(self):
         """Kullanıcının koleksiyonlarını getir"""
         return Collection.get_user_collections(self.id)
+    
+    def get_favorite_products(self):
+        """Kullanıcının favori ürünlerini getir"""
+        conn = sqlite3.connect('favit.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.* FROM products p
+            INNER JOIN favorites f ON p.id = f.product_id
+            WHERE f.user_id = ?
+            ORDER BY f.created_at DESC
+        ''', (self.id,))
+        products = cursor.fetchall()
+        conn.close()
+        
+        return [Product(*product) for product in products]
+    
+    def is_product_favorite(self, product_id):
+        """Ürünün favori olup olmadığını kontrol et"""
+        conn = sqlite3.connect('favit.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM favorites WHERE user_id = ? AND product_id = ?', (self.id, product_id))
+        result = cursor.fetchone()
+        conn.close()
+        return result is not None
+    
+    def add_to_favorites(self, product_id):
+        """Ürünü favorilere ekle"""
+        # Önce ürünün kullanıcıya ait olduğunu kontrol et
+        conn = sqlite3.connect('favit.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM products WHERE id = ? AND user_id = ?', (product_id, self.id))
+        if not cursor.fetchone():
+            conn.close()
+            return False
+        
+        # Favorilere ekle
+        try:
+            favorite_id = str(uuid.uuid4())
+            cursor.execute('''
+                INSERT INTO favorites (id, user_id, product_id, created_at)
+                VALUES (?, ?, ?, ?)
+            ''', (favorite_id, self.id, product_id, datetime.now()))
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.IntegrityError:
+            # Zaten favorilerde
+            conn.close()
+            return False
+    
+    def remove_from_favorites(self, product_id):
+        """Ürünü favorilerden çıkar"""
+        conn = sqlite3.connect('favit.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM favorites WHERE user_id = ? AND product_id = ?', (self.id, product_id))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        conn.close()
+        return deleted
 
 class Product:
     def __init__(self, id, user_id, name, price, image, brand, url, created_at, old_price=None, current_price=None, discount_percentage=None, images=None, discount_info=None):

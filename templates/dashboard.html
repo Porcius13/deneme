@@ -1480,7 +1480,8 @@
                     <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image"
                         onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgwIiBoZWlnaHQ9IjI4MCIgdmlld0JveD0iMCAwIDI4MCAyODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyODAiIGhlaWdodD0iMjgwIiBmaWxsPSIjRjhGOEY4Ii8+CjxwYXRoIGQ9Ik0xNDAgMTQwTDEwMCAxMDBIMTgwTDE0MCAxNDBaIiBmaWxsPSIjQ0NDIi8+Cjx0ZXh0IHg9IjE0MCIgeT0iMTYwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiPkfDvHJzZWwgWXVrbMO8PC90ZXh0Pgo8L3N2Zz4K'">
                     {% endif %}
-                    <div class="favorite-icon">
+                    <div class="favorite-icon" data-product-id="{{ product.id }}" title="Favoriler"
+                        onclick="toggleFavorite('{{ product.id }}'); event.stopPropagation();">
                         <span class="heart">❤️</span>
                     </div>
                     <div class="tracking-alarm-icon" data-product-id="{{ product.id }}" title="Fiyat Takibi"
@@ -1832,6 +1833,7 @@
             productCards.forEach((card, index) => {
                 const productId = card.dataset.productId;
                 checkTrackingStatus(productId);
+                checkFavoriteStatus(productId);
 
                 // Fade-in animasyonu
                 card.style.opacity = '0';
@@ -1885,6 +1887,86 @@
             } else {
                 alarmIcon.classList.remove('tracking-active');
                 alarmIcon.title = 'Fiyat Takibi - Tıklayarak başlatın';
+            }
+        }
+
+        // Favori durumunu kontrol et
+        function checkFavoriteStatus(productId) {
+            fetch(`/product/${productId}/favorite-status`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updateFavoriteButton(productId, data.is_favorite);
+                    }
+                })
+                .catch(error => {
+                    console.error('Favori durumu kontrol hatası:', error);
+                });
+        }
+
+        // Favori toggle fonksiyonu
+        window.toggleFavorite = function(productId) {
+            console.log('[DEBUG] toggleFavorite called for product:', productId);
+            const favoriteIcon = document.querySelector(`.favorite-icon[data-product-id="${productId}"]`);
+            if (!favoriteIcon) {
+                console.error('[HATA] Favorite icon bulunamadı:', productId);
+                return;
+            }
+
+            const isFavorite = favoriteIcon.classList.contains('favorite-active');
+            console.log('[DEBUG] Current favorite status:', isFavorite);
+
+            // Visual feedback
+            favoriteIcon.style.opacity = '0.5';
+
+            fetch(`/product/${productId}/toggle-favorite`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin'
+            })
+                .then(response => {
+                    console.log('[DEBUG] Response received:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        ok: response.ok
+                    });
+                    return response.json();
+                })
+                .then(data => {
+                    favoriteIcon.style.opacity = ''; // Reset opacity
+                    if (data.success) {
+                        updateFavoriteButton(productId, data.is_favorite);
+                        if (typeof toast !== 'undefined') {
+                            toast.success(data.message || (data.is_favorite ? 'Favorilere eklendi' : 'Favorilerden çıkarıldı'));
+                        }
+                    } else {
+                        if (typeof toast !== 'undefined') {
+                            toast.error(data.message || 'Bir hata oluştu');
+                        }
+                    }
+                })
+                .catch(error => {
+                    favoriteIcon.style.opacity = ''; // Reset opacity
+                    console.error('Favori toggle hatası:', error);
+                    if (typeof toast !== 'undefined') {
+                        toast.error('Bir hata oluştu');
+                    }
+                });
+        };
+
+        // Favori butonunu güncelle
+        function updateFavoriteButton(productId, isFavorite) {
+            const favoriteIcon = document.querySelector(`.favorite-icon[data-product-id="${productId}"]`);
+            if (!favoriteIcon) return;
+
+            if (isFavorite) {
+                favoriteIcon.classList.add('favorite-active');
+                favoriteIcon.title = 'Favorilerde - Tıklayarak çıkarın';
+            } else {
+                favoriteIcon.classList.remove('favorite-active');
+                favoriteIcon.title = 'Favoriler - Tıklayarak ekleyin';
             }
         }
 
