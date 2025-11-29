@@ -3996,7 +3996,7 @@ def profile_collections():
 @login_required
 def profile_favorites():
     """Kullanıcının favorileri sayfası"""
-    products = Product.get_user_products(current_user.id)
+    products = current_user.get_products()
     return render_template("profile_favorites.html", products=products)
 
 @app.route("/profile/<profile_url>")
