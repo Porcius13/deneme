@@ -1465,6 +1465,157 @@ async def extract_with_site_config(page, url, site_config):
                     traceback.print_exc()
                     old_price = None
             
+            # Bershka için özel fiyat çıkarma mantığı
+            elif "bershka.com" in url:
+                print(f"[DEBUG] Bershka için özel fiyat çıkarma başlıyor")
+                try:
+                    # Önce JSON-LD structured data'dan fiyat çek (en güvenilir)
+                    try:
+                        json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
+                        for script in json_ld_scripts:
+                            script_content = await script.text_content()
+                            if script_content and 'offers' in script_content:
+                                import json
+                                try:
+                                    data = json.loads(script_content)
+                                    if isinstance(data, dict) and '@type' in data and data['@type'] == 'Product':
+                                        if 'offers' in data:
+                                            offers = data['offers']
+                                            if isinstance(offers, dict) and 'price' in offers:
+                                                price_value = offers['price']
+                                                if isinstance(price_value, (int, float)) and price_value > 0:
+                                                    price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    print(f"[DEBUG] Bershka JSON-LD fiyat bulundu: {price}")
+                                                    
+                                                    # Eski fiyat kontrolü (priceSpecification içinde olabilir)
+                                                    if 'priceSpecification' in offers:
+                                                        price_spec = offers['priceSpecification']
+                                                        if isinstance(price_spec, dict) and 'value' in price_spec:
+                                                            old_price_value = price_spec['value']
+                                                            if isinstance(old_price_value, (int, float)) and old_price_value > price_value:
+                                                                old_price = f"{old_price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                                print(f"[DEBUG] Bershka JSON-LD eski fiyat bulundu: {old_price}")
+                                                    break
+                                            elif isinstance(offers, list) and len(offers) > 0:
+                                                if 'price' in offers[0]:
+                                                    price_value = offers[0]['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Bershka JSON-LD fiyat bulundu: {price}")
+                                                        break
+                                except json.JSONDecodeError:
+                                    continue
+                    except Exception as e:
+                        print(f"[DEBUG] Bershka JSON-LD fiyat çekme hatası: {e}")
+                    
+                    # JSON-LD'den bulunamadıysa DOM'dan çek
+                    if not price:
+                        # Bershka fiyat selector'ları - öncelik sırasına göre
+                        bershka_price_selectors = [
+                            'span.current-price-elem--discounted',
+                            '.current-price-elem--discounted',
+                            'span[data-qa-anchor="productItemDiscount"]',
+                            'span[class*="current-price"]',
+                            'span[class*="price"]',
+                            '.price'
+                        ]
+                        
+                        bershka_old_price_selectors = [
+                            's.old-price-elem',
+                            '.old-price-elem',
+                            's[data-qa-anchor="productItemPrice"]',
+                            's[class*="old-price"]',
+                            'del[class*="price"]',
+                            'span[class*="old-price"]'
+                        ]
+                        
+                        # Önce mevcut fiyatı çek
+                        for selector in bershka_price_selectors:
+                            try:
+                                price_element = await page.query_selector(selector)
+                                if price_element:
+                                    price_text = await price_element.text_content()
+                                    if price_text and price_text.strip():
+                                        price_text = price_text.strip()
+                                        print(f"[DEBUG] Bershka price element text: '{price_text}' (selector: {selector})")
+                                        
+                                        # Fiyat formatını parse et (760,00 TL veya 760.00 TL)
+                                        price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*[,\.][0-9]{2}|[0-9]+[,\.][0-9]{2})', price_text)
+                                        if price_match:
+                                            found_price_str = price_match.group(1)
+                                            try:
+                                                # Fiyatı sayıya çevir
+                                                if ',' in found_price_str:
+                                                    # Format: 760,00 (Türkçe)
+                                                    price_clean = found_price_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    # Format: 760.00
+                                                    price_clean = found_price_str
+                                                
+                                                price_num = float(price_clean)
+                                                
+                                                # Mantıklı fiyat aralığı kontrolü (10 TL - 10.000 TL)
+                                                if 10 <= price_num <= 10000:
+                                                    # Türkçe formatına çevir (760,00 TL)
+                                                    if price_num >= 1000:
+                                                        price = f"{price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        price = f"{price_num:.2f} TL".replace('.', ',')
+                                                    print(f"[DEBUG] Bershka fiyat bulundu: {price} (selector: {selector})")
+                                                    break
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Bershka price selector hatası {selector}: {e}")
+                                continue
+                        
+                        # Sonra eski fiyatı çek
+                        for selector in bershka_old_price_selectors:
+                            try:
+                                old_price_element = await page.query_selector(selector)
+                                if old_price_element:
+                                    old_price_text = await old_price_element.text_content()
+                                    if old_price_text and old_price_text.strip():
+                                        old_price_text = old_price_text.strip()
+                                        print(f"[DEBUG] Bershka old price element text: '{old_price_text}' (selector: {selector})")
+                                        
+                                        # Fiyat formatını parse et
+                                        old_price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*[,\.][0-9]{2}|[0-9]+[,\.][0-9]{2})', old_price_text)
+                                        if old_price_match:
+                                            found_price_str = old_price_match.group(1)
+                                            try:
+                                                # Fiyatı sayıya çevir
+                                                if ',' in found_price_str:
+                                                    old_price_clean = found_price_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    old_price_clean = found_price_str
+                                                
+                                                old_price_num = float(old_price_clean)
+                                                
+                                                # Mantıklı fiyat aralığı kontrolü ve mevcut fiyattan yüksek olmalı
+                                                if 10 <= old_price_num <= 10000 and (not price or old_price_num > float(price.replace('.', '').replace(',', '.').replace(' TL', ''))):
+                                                    # Türkçe formatına çevir
+                                                    if old_price_num >= 1000:
+                                                        old_price = f"{old_price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        old_price = f"{old_price_num:.2f} TL".replace('.', ',')
+                                                    print(f"[DEBUG] Bershka eski fiyat bulundu: {old_price} (selector: {selector})")
+                                                    break
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Bershka old price selector hatası {selector}: {e}")
+                                continue
+                    
+                    if not old_price:
+                        print(f"[DEBUG] Bershka eski fiyat bulunamadı")
+                
+                except Exception as e:
+                    print(f"[DEBUG] Bershka özel fiyat çıkarma hatası: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    old_price = None
+            
             else:
                 # Diğer siteler için genel yaklaşım
                 # Tüm fiyat elementlerini topla
