@@ -1290,6 +1290,239 @@ async def extract_with_site_config(page, url, site_config):
                     traceback.print_exc()
                     old_price = None
             
+            # Amazon.com.tr için özel fiyat çıkarma mantığı
+            elif "amazon.com.tr" in url or "amazon.com" in url:
+                print(f"[DEBUG] Amazon için özel fiyat çıkarma başlıyor")
+                try:
+                    # Önce JSON-LD structured data'dan fiyat çek (en güvenilir)
+                    try:
+                        json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
+                        for script in json_ld_scripts:
+                            script_content = await script.text_content()
+                            if script_content and ('offers' in script_content or 'price' in script_content):
+                                import json
+                                try:
+                                    data = json.loads(script_content)
+                                    
+                                    # Product objesi içinde offers
+                                    if isinstance(data, dict):
+                                        if 'offers' in data:
+                                            offers = data['offers']
+                                            if isinstance(offers, dict) and 'price' in offers:
+                                                price_value = offers['price']
+                                                if isinstance(price_value, (int, float)) and price_value > 0:
+                                                    price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    print(f"[DEBUG] Amazon JSON-LD fiyat bulundu: {price}")
+                                                    
+                                                    # Eski fiyat kontrolü
+                                                    if 'priceCurrency' in offers and 'highPrice' in offers:
+                                                        high_price = offers.get('highPrice')
+                                                        if high_price and high_price != price_value:
+                                                            old_price = f"{high_price:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                            print(f"[DEBUG] Amazon JSON-LD eski fiyat bulundu: {old_price}")
+                                                    break
+                                            elif isinstance(offers, list) and len(offers) > 0:
+                                                if 'price' in offers[0]:
+                                                    price_value = offers[0]['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Amazon JSON-LD fiyat bulundu: {price}")
+                                                        break
+                                        # @graph içinde Product
+                                        elif '@graph' in data:
+                                            for item in data['@graph']:
+                                                if isinstance(item, dict) and item.get('@type') == 'Product' and 'offers' in item:
+                                                    offers = item['offers']
+                                                    if isinstance(offers, dict) and 'price' in offers:
+                                                        price_value = offers['price']
+                                                        if isinstance(price_value, (int, float)) and price_value > 0:
+                                                            price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                            print(f"[DEBUG] Amazon JSON-LD fiyat bulundu (@graph): {price}")
+                                                            break
+                                    # Array içinde Product
+                                    elif isinstance(data, list):
+                                        for item in data:
+                                            if isinstance(item, dict) and item.get('@type') == 'Product' and 'offers' in item:
+                                                offers = item['offers']
+                                                if isinstance(offers, dict) and 'price' in offers:
+                                                    price_value = offers['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Amazon JSON-LD fiyat bulundu (array): {price}")
+                                                        break
+                                except json.JSONDecodeError:
+                                    continue
+                    except Exception as e:
+                        print(f"[DEBUG] Amazon JSON-LD fiyat çekme hatası: {e}")
+                    
+                    # JSON-LD'den bulunamadıysa meta tag'lerden çek
+                    if not price:
+                        try:
+                            # Amazon'un meta tag'leri
+                            meta_selectors = [
+                                'meta[property="product:price:amount"]',
+                                'meta[name="twitter:data1"]',
+                                'meta[property="og:price:amount"]'
+                            ]
+                            for meta_selector in meta_selectors:
+                                meta_price = await page.query_selector(meta_selector)
+                                if meta_price:
+                                    price_value = await meta_price.get_attribute('content')
+                                    if price_value:
+                                        try:
+                                            price_float = float(price_value)
+                                            if price_float > 0:
+                                                price = f"{price_float:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                print(f"[DEBUG] Amazon meta fiyat bulundu: {price}")
+                                                break
+                                        except:
+                                            pass
+                        except Exception as e:
+                            print(f"[DEBUG] Amazon meta fiyat çekme hatası: {e}")
+                    
+                    # Meta'dan da bulunamadıysa DOM'dan çek - Güncel Amazon selector'ları
+                    if not price:
+                        amazon_price_selectors = [
+                            ".a-price .a-offscreen",  # En yaygın - görünmez fiyat
+                            "#priceblock_ourprice",
+                            "#priceblock_dealprice",
+                            "#priceblock_saleprice",
+                            "#corePrice_feature_div .a-offscreen",
+                            "#corePriceDisplay_desktop_feature_div .a-offscreen",
+                            "#corePrice_feature_div .a-price-whole",
+                            ".a-price-whole",
+                            ".a-price .a-price-whole",
+                            "span.a-price-whole",
+                            ".a-price-range .a-offscreen",
+                            "[data-a-color='price'] .a-offscreen",
+                            ".a-price-symbol + .a-price-whole",
+                            ".a-price[data-a-color='price'] .a-offscreen"
+                        ]
+                        
+                        all_found_prices = []
+                        
+                        for selector in amazon_price_selectors:
+                            try:
+                                price_elements = await page.query_selector_all(selector)
+                                for element in price_elements:
+                                    price_text = await element.text_content()
+                                    if not price_text:
+                                        # a-offscreen için get_attribute dene
+                                        price_text = await element.get_attribute('textContent') or await element.get_attribute('innerText')
+                                    
+                                    if price_text and price_text.strip():
+                                        price_text = price_text.strip()
+                                        print(f"[DEBUG] Amazon price element text: '{price_text[:100]}...' (selector: {selector})")
+                                        
+                                        # Amazon fiyat formatları: "₺12.999,00", "12.999,00", "12999.00", vb.
+                                        # Türkçe format (12.999,00)
+                                        price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # İngilizce format (12,999.00)
+                                            price_match = re.search(r'([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # Basit format (12999.00 veya 12999,00)
+                                            price_match = re.search(r'([0-9]+[.,][0-9]{2})', price_text)
+                                        if not price_match:
+                                            # Sadece sayı (12999)
+                                            price_match = re.search(r'([0-9]{3,})', price_text)
+                                        
+                                        if price_match:
+                                            found_price_str = price_match.group(1)
+                                            try:
+                                                # Fiyatı sayıya çevir
+                                                if ',' in found_price_str and '.' in found_price_str:
+                                                    # Format: 12,999.00 (İngilizce)
+                                                    price_clean = found_price_str.replace(',', '')
+                                                elif '.' in found_price_str and ',' not in found_price_str:
+                                                    # Format: 12.999,00 (Türkçe)
+                                                    price_clean = found_price_str.replace('.', '').replace(',', '.')
+                                                elif ',' in found_price_str:
+                                                    # Format: 12999,00
+                                                    price_clean = found_price_str.replace(',', '.')
+                                                else:
+                                                    # Format: 12999.00 veya 12999
+                                                    price_clean = found_price_str
+                                                
+                                                price_num = float(price_clean)
+                                                
+                                                # Mantıklı fiyat aralığı kontrolü (10 TL - 1.000.000 TL)
+                                                if 10 <= price_num <= 1000000:
+                                                    # Türkçe formatına çevir (12.999,00 TL)
+                                                    if price_num >= 1000:
+                                                        formatted_price = f"{price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        formatted_price = f"{price_num:.2f} TL".replace('.', ',')
+                                                    
+                                                    all_found_prices.append({
+                                                        'price': formatted_price,
+                                                        'price_num': price_num,
+                                                        'text': price_text,
+                                                        'selector': selector,
+                                                        'priority': amazon_price_selectors.index(selector)
+                                                    })
+                                                    print(f"[DEBUG] Amazon fiyat adayı bulundu: {formatted_price} ({price_num} TL) (selector: {selector})")
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Amazon price selector hatası {selector}: {e}")
+                                continue
+                        
+                        # En yüksek öncelikli fiyatı seç
+                        if all_found_prices:
+                            # Önce öncelik sırasına göre sırala (düşük index = yüksek öncelik)
+                            all_found_prices.sort(key=lambda x: x['priority'])
+                            
+                            # İlk (en yüksek öncelikli) fiyatı seç
+                            selected = all_found_prices[0]
+                            price = selected['price']
+                            print(f"[DEBUG] Amazon fiyat seçildi: {price} (selector: {selected['selector']}, öncelik: {selected['priority']})")
+                            
+                            # Eski fiyat kontrolü - a-price-strike veya a-text-strike içinde
+                            try:
+                                strike_elements = await page.query_selector_all(".a-price-strike .a-offscreen, .a-text-strike .a-offscreen, .a-price.a-text-price .a-offscreen")
+                                for element in strike_elements:
+                                    old_price_text = await element.text_content()
+                                    if not old_price_text:
+                                        old_price_text = await element.get_attribute('textContent') or await element.get_attribute('innerText')
+                                    
+                                    if old_price_text and old_price_text.strip():
+                                        old_price_text = old_price_text.strip()
+                                        old_price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}|[0-9]+[.,][0-9]{2})', old_price_text)
+                                        if old_price_match:
+                                            old_price_str = old_price_match.group(1)
+                                            try:
+                                                if ',' in old_price_str and '.' in old_price_str:
+                                                    old_price_clean = old_price_str.replace(',', '')
+                                                elif '.' in old_price_str:
+                                                    old_price_clean = old_price_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    old_price_clean = old_price_str.replace(',', '.')
+                                                
+                                                old_price_num = float(old_price_clean)
+                                                if old_price_num > selected['price_num'] and 10 <= old_price_num <= 1000000:
+                                                    if old_price_num >= 1000:
+                                                        old_price = f"{old_price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        old_price = f"{old_price_num:.2f} TL".replace('.', ',')
+                                                    print(f"[DEBUG] Amazon eski fiyat bulundu: {old_price}")
+                                                    break
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Amazon eski fiyat çekme hatası: {e}")
+                        else:
+                            print(f"[DEBUG] Amazon hiç fiyat bulunamadı")
+                    
+                    if not old_price:
+                        print(f"[DEBUG] Amazon eski fiyat bulunamadı")
+                
+                except Exception as e:
+                    print(f"[DEBUG] Amazon özel fiyat çıkarma hatası: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    old_price = None
+            
             # Altınyıldız Classics için özel fiyat çıkarma mantığı
             elif "altinyildizclassics.com" in url:
                 print(f"[DEBUG] Altınyıldız Classics için özel fiyat çıkarma başlıyor")
