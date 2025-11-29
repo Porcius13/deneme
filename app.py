@@ -2423,6 +2423,9 @@ async def extract_with_site_config(page, url, site_config):
                                                     'priority': priority_selectors.index(selector)
                                                 })
                                                 print(f"[DEBUG] Hepsiburada ürün görseli adayı bulundu: {src} (width: {max_width}, priority: {priority_selectors.index(selector)})")
+                                except Exception as e:
+                                    print(f"[DEBUG] Hepsiburada görsel element hatası: {e}")
+                                    continue
                         except Exception as e:
                             print(f"[DEBUG] Hepsiburada görsel selector hatası {selector}: {e}")
                             continue
