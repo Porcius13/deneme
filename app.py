@@ -888,17 +888,19 @@ async def extract_with_site_config(page, url, site_config):
                     
                     # Meta'dan da bulunamadıysa DOM'dan çek
                     if not price:
-                        # Pull&Bear fiyat selector'ları - öncelik sırasına göre
+                        # Pull&Bear fiyat selector'ları - öncelik sırasına göre (güncellenmiş)
                         pullandbear_price_selectors = [
+                            "span[data-testid='current-price']",
                             "div[class*='price'] span[class*='current']",
                             "span.current-price",
-                            "span[data-testid='current-price']",
                             ".price-current",
+                            "[data-price]",
+                            "[itemprop='price']",
+                            "span[class*='price'][class*='current']",
+                            "div[class*='price'] span",
                             "span.number",
                             ".number",
                             "span[class*='price']",
-                            "div[class*='price'] span",
-                            "[itemprop='price']",
                             ".price",
                             "span.price"
                         ]
@@ -2700,11 +2702,14 @@ async def extract_with_site_config(page, url, site_config):
                     # Tüm potansiyel ürün görsellerini topla
                     all_product_images = []
                     
-                    # Öncelikli selector'lar - Pull&Bear'a özel
+                    # Öncelikli selector'lar - Pull&Bear'a özel (güncellenmiş)
                     priority_selectors = [
                         # Ana ürün görseli selector'ları (en öncelikli)
-                        "img-zoom",
+                        "img[data-testid='product-detail-image']",
                         "img[data-qa-image]",
+                        "img[class*='product-image']",
+                        "img[class*='main-image']",
+                        "img[class*='product-detail-image']",
                         "img#product-image",
                         "img#image",
                         ".product-media img",
@@ -2713,7 +2718,8 @@ async def extract_with_site_config(page, url, site_config):
                         # Pull&Bear domain içeren görseller
                         "img[src*='static.pullandbear.net']",
                         "img[srcset*='static.pullandbear.net']",
-                        "img[src*='pullandbear.net/assets']"
+                        "img[src*='pullandbear.net/assets']",
+                        "img[src*='pullandbear']"
                     ]
                     
                     for selector in priority_selectors:
@@ -3707,16 +3713,20 @@ async def scrape_product(url):
                                     continue
                         
                         elif "pullandbear.com" in url:
-                            # Pull&Bear için özel başlık selector'ları
+                            # Pull&Bear için özel başlık selector'ları (güncellenmiş)
                             pullandbear_title_selectors = [
                                 'h1[data-testid="product-detail-name"]',
+                                'h1[data-testid="product-name"]',
                                 'h1.product-name',
                                 'h1.product-title',
                                 'h1.title',
                                 '.product-name',
                                 '.product-title',
                                 '.product-detail-name',
-                                '[data-testid="product-title"]'
+                                '[data-testid="product-title"]',
+                                '[data-testid="product-detail-name"]',
+                                'h1',
+                                'title'
                             ]
                             for selector in pullandbear_title_selectors:
                                 try:
