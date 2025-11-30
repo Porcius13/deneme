@@ -664,6 +664,9 @@
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             min-width: 220px;
+            max-height: 300px;
+            overflow-y: auto;
+            overflow-x: hidden;
             box-shadow: 0 20px 60px var(--shadow);
             border-radius: 15px;
             z-index: 1000;
@@ -671,6 +674,24 @@
             left: 0;
             margin-top: 10px;
             border: 1px solid var(--glass-border);
+        }
+        
+        /* Custom scrollbar for dropdown */
+        .dropdown-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .dropdown-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .dropdown-content::-webkit-scrollbar-thumb {
+            background: var(--text-secondary);
+            border-radius: 3px;
+        }
+        
+        .dropdown-content::-webkit-scrollbar-thumb:hover {
+            background: var(--text-primary);
         }
 
         .dropdown-item {
