@@ -466,7 +466,20 @@ class Collection:
         self.type = type
         self.is_public = is_public
         self.share_url = share_url
-        self.created_at = created_at
+        # created_at'i datetime objesine çevir (eğer string ise)
+        if isinstance(created_at, str):
+            try:
+                # SQLite timestamp formatını parse et
+                self.created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S.%f')
+            except ValueError:
+                try:
+                    # Alternatif format (milisaniye olmadan)
+                    self.created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    # Parse edilemezse string olarak bırak
+                    self.created_at = created_at
+        else:
+            self.created_at = created_at
     
     @staticmethod
     def create(user_id, name, description, type, is_public=True):

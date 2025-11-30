@@ -446,7 +446,17 @@
                                 <div class="stat-label">Ürün</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-number">{{ collection.created_at.strftime('%d.%m.%Y') if collection.created_at else 'N/A' }}</div>
+                                <div class="stat-number">
+                                    {% if collection.created_at %}
+                                        {% if collection.created_at.strftime %}
+                                            {{ collection.created_at.strftime('%d.%m.%Y') }}
+                                        {% else %}
+                                            {{ collection.created_at[:10] }}
+                                        {% endif %}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </div>
                                 <div class="stat-label">Oluşturulma</div>
                             </div>
                         </div>
