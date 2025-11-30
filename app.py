@@ -4072,23 +4072,58 @@ async def scrape_product(url):
                                     continue
                         
                         elif "pullandbear.com" in url:
-                            # Pull&Bear için özel selector'lar
+                            # Pull&Bear için özel selector'lar (güncellenmiş)
                             pullandbear_selectors = [
                                 'img[data-testid="product-detail-image"]',
+                                'img[data-qa-image]',
                                 'img[class*="product-image"]',
                                 'img[class*="main-image"]',
-                                'img[src*="pullandbear"]',
-                                'img[alt*="product"]',
                                 'img[class*="product-detail-image"]',
-                                'img[data-testid="product-image"]'
+                                'img[data-testid="product-image"]',
+                                'img[src*="static.pullandbear.net"]',
+                                'img[srcset*="static.pullandbear.net"]',
+                                'img[src*="pullandbear.net/assets"]',
+                                'img[src*="pullandbear"]',
+                                'img[alt*="product"]'
                             ]
                             for selector in pullandbear_selectors:
                                 try:
                                     img = await page.query_selector(selector)
                                     if img:
                                         src = await img.get_attribute('src')
-                                        if src and any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.webp', '.png']):
-                                            image = src
+                                        data_src = await img.get_attribute('data-src')
+                                        srcset = await img.get_attribute('srcset')
+                                        
+                                        # En iyi URL'yi seç
+                                        best_src = src or data_src
+                                        
+                                        # srcset'ten en yüksek çözünürlüğü al
+                                        if srcset:
+                                            srcset_parts = srcset.split(',')
+                                            max_width = 0
+                                            for part in srcset_parts:
+                                                part = part.strip()
+                                                if ' ' in part:
+                                                    url_part, size_part = part.rsplit(' ', 1)
+                                                    if 'w' in size_part:
+                                                        try:
+                                                            width = int(size_part.replace('w', ''))
+                                                            if width > max_width:
+                                                                max_width = width
+                                                                best_src = url_part.strip()
+                                                        except ValueError:
+                                                            continue
+                                        
+                                        if best_src and any(ext in best_src.lower() for ext in ['.jpg', '.jpeg', '.webp', '.png']):
+                                            # Relative URL düzeltme
+                                            if best_src.startswith('//'):
+                                                best_src = 'https:' + best_src
+                                            elif best_src.startswith('/'):
+                                                from urllib.parse import urlparse
+                                                parsed = urlparse(url)
+                                                best_src = f"{parsed.scheme}://{parsed.netloc}{best_src}"
+                                            
+                                            image = best_src
                                             break
                                 except:
                                     continue
