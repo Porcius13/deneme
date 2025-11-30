@@ -10,6 +10,29 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from models import init_db, User, Product, Collection
+
+# Import scrapers config for standardized timeouts and site configs
+try:
+    from scrapers.config import get_timeout, get_site_config, SITE_CONFIGS
+except ImportError:
+    # Fallback if scrapers module not available
+    def get_timeout(timeout_type="default"):
+        """Fallback timeout function"""
+        timeouts = {
+            "page_load": 90000,
+            "network_idle": 30000,
+            "element_wait": 10000,
+            "navigation": 20000,
+            "default": 15000
+        }
+        return timeouts.get(timeout_type, 15000)
+    
+    def get_site_config(url):
+        """Fallback site config function"""
+        # Use existing SITE_CONFIGS from app.py if scrapers module not available
+        pass
+    
+    SITE_CONFIGS = {}
 try:
     from universal_scraper import universal_scraper
     UNIVERSAL_SCRAPER_AVAILABLE = True
@@ -115,25 +138,39 @@ SITE_CONFIGS = {
     },
     "pullandbear.com": {
         "image_selectors": [
+            "img[data-qa-image]",
+            "img#product-image",
             "img#image",
-            "img[alt*='SpongeBob']",
+            ".product-media img",
+            ".product-image img",
             "img[src*='static.pullandbear.net']",
+            "img[srcset*='static.pullandbear.net']",
             "img[src*='pullandbear.net/assets']"
         ],
         "price_selectors": [
+            "div[class*='price'] span[class*='current']",
+            "span.current-price",
+            "span[data-testid='current-price']",
+            ".price-current",
             "span.number",
             ".number",
             "span.number:first-of-type"
         ],
         "old_price_selectors": [
+            "div[class*='price'] span[class*='old']",
+            "span.old-price",
+            "span[data-testid='old-price']",
+            ".price-old",
+            "span.number:last-of-type",
             "span.number",
-            ".number",
-            "span.number:last-of-type"
+            ".number"
         ],
         "title_selectors": [
+            "h1[data-testid='product-name']",
             "h1.product-name",
             "h1.product-title",
-            ".product-name"
+            ".product-name",
+            "h1"
         ]
     },
     "marksandspencer.com.tr": {
@@ -797,6 +834,176 @@ async def extract_with_site_config(page, url, site_config):
                     
                 except Exception as e:
                     print(f"[DEBUG] Sportime özel fiyat çıkarma hatası: {e}")
+            
+            # Pull&Bear için özel fiyat çıkarma mantığı
+            elif "pullandbear.com" in url:
+                print(f"[DEBUG] Pull&Bear için özel fiyat çıkarma başlıyor")
+                try:
+                    # Önce JSON-LD structured data'dan fiyat çek (en güvenilir)
+                    try:
+                        json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
+                        for script in json_ld_scripts:
+                            script_content = await script.text_content()
+                            if script_content and 'offers' in script_content:
+                                import json
+                                try:
+                                    data = json.loads(script_content)
+                                    if isinstance(data, dict) and '@type' in data and data['@type'] == 'Product':
+                                        if 'offers' in data:
+                                            offers = data['offers']
+                                            if isinstance(offers, dict) and 'price' in offers:
+                                                price_value = offers['price']
+                                                if isinstance(price_value, (int, float)) and price_value > 0:
+                                                    price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    print(f"[DEBUG] Pull&Bear JSON-LD fiyat bulundu: {price}")
+                                                    break
+                                            elif isinstance(offers, list) and len(offers) > 0:
+                                                if 'price' in offers[0]:
+                                                    price_value = offers[0]['price']
+                                                    if isinstance(price_value, (int, float)) and price_value > 0:
+                                                        price = f"{price_value:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                        print(f"[DEBUG] Pull&Bear JSON-LD fiyat bulundu: {price}")
+                                                        break
+                                except json.JSONDecodeError:
+                                    continue
+                    except Exception as e:
+                        print(f"[DEBUG] Pull&Bear JSON-LD fiyat çekme hatası: {e}")
+                    
+                    # JSON-LD'den bulunamadıysa meta tag'lerden çek
+                    if not price:
+                        try:
+                            meta_price = await page.query_selector('meta[property="product:price:amount"]')
+                            if meta_price:
+                                price_value = await meta_price.get_attribute('content')
+                                if price_value:
+                                    try:
+                                        price_float = float(price_value)
+                                        if price_float > 0:
+                                            price = f"{price_float:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                            print(f"[DEBUG] Pull&Bear meta fiyat bulundu: {price}")
+                                    except:
+                                        pass
+                        except Exception as e:
+                            print(f"[DEBUG] Pull&Bear meta fiyat çekme hatası: {e}")
+                    
+                    # Meta'dan da bulunamadıysa DOM'dan çek
+                    if not price:
+                        # Pull&Bear fiyat selector'ları - öncelik sırasına göre
+                        pullandbear_price_selectors = [
+                            "div[class*='price'] span[class*='current']",
+                            "span.current-price",
+                            "span[data-testid='current-price']",
+                            ".price-current",
+                            "span.number",
+                            ".number",
+                            "span[class*='price']",
+                            "div[class*='price'] span",
+                            "[itemprop='price']",
+                            ".price",
+                            "span.price"
+                        ]
+                        
+                        all_found_prices = []
+                        
+                        for selector in pullandbear_price_selectors:
+                            try:
+                                price_elements = await page.query_selector_all(selector)
+                                for element in price_elements:
+                                    price_text = await element.text_content()
+                                    if price_text and price_text.strip():
+                                        price_text = price_text.strip()
+                                        print(f"[DEBUG] Pull&Bear price element text: '{price_text[:100]}...' (selector: {selector})")
+                                        
+                                        # Fiyat formatları: "990,00 TL", "990.00", "990,00", vb.
+                                        # Türkçe format (990,00)
+                                        price_match = re.search(r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # İngilizce format (990.00)
+                                            price_match = re.search(r'([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})', price_text)
+                                        if not price_match:
+                                            # Basit format (990,00 veya 990.00)
+                                            price_match = re.search(r'([0-9]+[.,][0-9]{2})', price_text)
+                                        
+                                        if price_match:
+                                            found_price_str = price_match.group(1)
+                                            try:
+                                                # Fiyatı sayıya çevir
+                                                if ',' in found_price_str and '.' in found_price_str:
+                                                    # Format: 1,990.00 (İngilizce)
+                                                    price_clean = found_price_str.replace(',', '')
+                                                elif '.' in found_price_str and ',' not in found_price_str:
+                                                    # Format: 1.990,00 (Türkçe) veya 990.00 (İngilizce)
+                                                    if found_price_str.count('.') > 1:
+                                                        price_clean = found_price_str.replace('.', '').replace(',', '.')
+                                                    else:
+                                                        price_clean = found_price_str
+                                                elif ',' in found_price_str:
+                                                    # Format: 990,00 (Türkçe)
+                                                    price_clean = found_price_str.replace(',', '.')
+                                                else:
+                                                    # Format: 990.00 veya 990
+                                                    price_clean = found_price_str
+                                                
+                                                price_num = float(price_clean)
+                                                
+                                                # Mantıklı fiyat aralığı kontrolü (10 TL - 100.000 TL)
+                                                # 0 TL veya çok düşük fiyatları yoksay
+                                                if 10 <= price_num <= 100000:
+                                                    # Türkçe formatına çevir (990,00 TL)
+                                                    if price_num >= 1000:
+                                                        formatted_price = f"{price_num:,.2f} TL".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                                    else:
+                                                        formatted_price = f"{price_num:.2f} TL".replace('.', ',')
+                                                    
+                                                    all_found_prices.append({
+                                                        'price': formatted_price,
+                                                        'price_num': price_num,
+                                                        'text': price_text,
+                                                        'selector': selector,
+                                                        'priority': pullandbear_price_selectors.index(selector)
+                                                    })
+                                                    print(f"[DEBUG] Pull&Bear fiyat adayı bulundu: {formatted_price} ({price_num} TL) (selector: {selector})")
+                                                else:
+                                                    print(f"[DEBUG] Pull&Bear geçersiz fiyat (çok düşük/yüksek): {price_num}")
+                                            except ValueError:
+                                                continue
+                            except Exception as e:
+                                print(f"[DEBUG] Pull&Bear price selector hatası {selector}: {e}")
+                                continue
+                        
+                        # En yüksek öncelikli fiyatı seç (düşük index = yüksek öncelik)
+                        if all_found_prices:
+                            all_found_prices.sort(key=lambda x: x['priority'])
+                            
+                            # Eğer birden fazla fiyat varsa ve indirim durumu varsa
+                            # Genellikle Pull&Bear'da indirim varsa iki fiyat görünür
+                            if len(all_found_prices) > 1:
+                                # Fiyatları sayısal değere göre sırala
+                                sorted_by_price = sorted(all_found_prices, key=lambda x: x['price_num'])
+                                
+                                # En düşük fiyat = güncel fiyat (indirimli)
+                                current_price_data = sorted_by_price[0]
+                                price = current_price_data['price']
+                                
+                                # En yüksek fiyat = eski fiyat (indirimsiz)
+                                # Sadece fark varsa eski fiyat olarak kabul et
+                                if sorted_by_price[-1]['price_num'] > sorted_by_price[0]['price_num']:
+                                    old_price_data = sorted_by_price[-1]
+                                    old_price = old_price_data['price']
+                                    print(f"[DEBUG] Pull&Bear indirim tespit edildi. Eski: {old_price}, Yeni: {price}")
+                                else:
+                                    print(f"[DEBUG] Pull&Bear indirim yok, tek fiyat: {price}")
+                            else:
+                                selected = all_found_prices[0]
+                                price = selected['price']
+                                print(f"[DEBUG] Pull&Bear tek fiyat seçildi: {price}")
+                        else:
+                            print(f"[DEBUG] Pull&Bear hiç fiyat bulunamadı")
+                    
+                except Exception as e:
+                    print(f"[DEBUG] Pull&Bear özel fiyat çıkarma hatası: {e}")
+                    import traceback
+                    traceback.print_exc()
             
             # Mavi.com için özel fiyat çıkarma mantığı
             elif "mavi.com" in url:
@@ -2485,6 +2692,110 @@ async def extract_with_site_config(page, url, site_config):
                     import traceback
                     traceback.print_exc()
             
+            
+            # Pull&Bear için özel görsel çekme mantığı
+            if "pullandbear.com" in url:
+                print(f"[DEBUG] Pull&Bear için özel görsel çekme başlıyor")
+                try:
+                    # Tüm potansiyel ürün görsellerini topla
+                    all_product_images = []
+                    
+                    # Öncelikli selector'lar - Pull&Bear'a özel
+                    priority_selectors = [
+                        # Ana ürün görseli selector'ları (en öncelikli)
+                        "img-zoom",
+                        "img[data-qa-image]",
+                        "img#product-image",
+                        "img#image",
+                        ".product-media img",
+                        ".product-image img",
+                        ".product-gallery img",
+                        # Pull&Bear domain içeren görseller
+                        "img[src*='static.pullandbear.net']",
+                        "img[srcset*='static.pullandbear.net']",
+                        "img[src*='pullandbear.net/assets']"
+                    ]
+                    
+                    for selector in priority_selectors:
+                        try:
+                            img_elements = await page.query_selector_all(selector)
+                            for img_element in img_elements:
+                                try:
+                                    # src kontrolü
+                                    src = await img_element.get_attribute('src')
+                                    
+                                    # data-src kontrolü
+                                    data_src = await img_element.get_attribute('data-src')
+                                    
+                                    # srcset kontrolü
+                                    srcset = await img_element.get_attribute('srcset')
+                                    
+                                    # En iyi URL'yi belirle
+                                    best_url = src
+                                    
+                                    # srcset varsa en yüksek çözünürlüğü bul
+                                    if srcset:
+                                        srcset_parts = srcset.split(',')
+                                        max_width = 0
+                                        for part in srcset_parts:
+                                            part = part.strip()
+                                            if ' ' in part:
+                                                url_part, size_part = part.rsplit(' ', 1)
+                                                if 'w' in size_part:
+                                                    try:
+                                                        width = int(size_part.replace('w', ''))
+                                                        if width > max_width:
+                                                            max_width = width
+                                                            best_url = url_part.strip()
+                                                    except ValueError:
+                                                        continue
+                                    
+                                    if data_src and not best_url:
+                                        best_url = data_src
+                                    
+                                    if best_url:
+                                        # Relative URL düzeltme
+                                        if best_url.startswith('//'):
+                                            best_url = 'https:' + best_url
+                                        elif best_url.startswith('/'):
+                                            from urllib.parse import urlparse
+                                            parsed = urlparse(url)
+                                            best_url = f"{parsed.scheme}://{parsed.netloc}{best_url}"
+                                        
+                                        # Pull&Bear URL Manipülasyonu (Yüksek Kalite İçin)
+                                        # Örnek: .../image.jpg?imwidth=750 -> .../image.jpg?imwidth=2500
+                                        if 'pullandbear.net' in best_url and 'imwidth=' in best_url:
+                                            best_url = re.sub(r'imwidth=\d+', 'imwidth=2500', best_url)
+                                            print(f"[DEBUG] Pull&Bear görsel kalitesi artırıldı: {best_url}")
+                                        
+                                        # Skip keyword kontrolü
+                                        skip_keywords = ['logo', 'banner', 'icon', 'header', 'footer', 'ad', 'promo', 'campaign', 'placeholder', 'loading']
+                                        if any(keyword in best_url.lower() for keyword in skip_keywords):
+                                            continue
+                                        
+                                        # Pull&Bear domain kontrolü
+                                        if 'pullandbear.net' in best_url:
+                                            all_product_images.append({
+                                                'url': best_url,
+                                                'priority': priority_selectors.index(selector)
+                                            })
+                                            print(f"[DEBUG] Pull&Bear ürün görseli adayı: {best_url}")
+                                except Exception as e:
+                                    continue
+                        except Exception as e:
+                            continue
+                    
+                    # En uygun görseli seç
+                    if all_product_images:
+                        # Priority'ye göre sırala
+                        all_product_images.sort(key=lambda x: x.get('priority', 999))
+                        image = all_product_images[0]['url']
+                        print(f"[DEBUG] Pull&Bear ürün görseli seçildi: {image}")
+                    else:
+                        print(f"[DEBUG] Pull&Bear görsel bulunamadı")
+                except Exception as e:
+                    print(f"[DEBUG] Pull&Bear görsel hatası: {e}")
+            
             # Altınyıldız Classics için özel görsel çekme mantığı
             if "altinyildizclassics.com" in url:
                 print(f"[DEBUG] Altınyıldız Classics için özel görsel çekme başlıyor")
@@ -3062,163 +3373,139 @@ async def scrape_product(url):
                 ]
             )
             
+            # Context oluştur
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='tr-TR',
+                timezone_id='Europe/Istanbul',
+                extra_http_headers={
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Referer': 'https://www.google.com/',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"'
+                }
+            )
+            
+            page = await context.new_page()
+            
+            # WebDriver özelliğini gizle
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.navigator.chrome = { runtime: {} };
+            """)
+
             try:
-                # Context oluştur - Boyner'de çalışan ayarlar
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='tr-TR',
-                    timezone_id='Europe/Istanbul',
-                    extra_http_headers={
-                        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'Referer': 'https://www.google.com/',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
-                        'Sec-Fetch-Dest': 'document',
-                        'Sec-Fetch-Mode': 'navigate',
-                        'Sec-Fetch-Site': 'none',
-                        'Sec-Fetch-User': '?1',
-                        'Cache-Control': 'max-age=0',
-                        'DNT': '1',
-                        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                        'Sec-Ch-Ua-Mobile': '?0',
-                        'Sec-Ch-Ua-Platform': '"Windows"',
-                    }
-                )
+                # Site-specific navigation logic
+                # Standardized navigation timeouts
+                nav_timeout = get_timeout("navigation")
+                wait_time = 2000
                 
-                # Sayfa oluştur
-                page = await context.new_page()
-                
-                # Bot korumasını aşmak için stealth script'ler - Boyner'de çalışan
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined,
-                    });
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5],
-                    });
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['tr-TR', 'tr', 'en-US', 'en'],
-                    });
-                    Object.defineProperty(navigator, 'permissions', {
-                        get: () => ({
-                            query: async () => ({ state: 'granted' })
-                        }),
-                    });
-                    window.chrome = {
-                        runtime: {},
-                    };
-                """)
-                
-                # Site-specific navigation - Boyner'deki başarılı yaklaşım
-                try:
-                    if "mango.com" in url:
-                        print(f"[DEBUG] Mango için özel navigation başlıyor")
-                        # Mango için daha agresif bot koruması aşma
-                        await page.goto("https://shop.mango.com/tr", wait_until="domcontentloaded", timeout=20000)
-                        await page.wait_for_timeout(5000)
-                        
-                        # Mango için özel stealth script
-                        await page.add_init_script("""
-                            // Mango için özel bot koruması aşma
-                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                            Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR', 'tr', 'en-US', 'en'] });
-                            Object.defineProperty(navigator, 'permissions', { get: () => ({ query: async () => ({ state: 'granted' }) }) });
-                            window.chrome = { runtime: {} };
-                            
-                            // Mango için özel user agent
-                            Object.defineProperty(navigator, 'userAgent', {
-                                get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                            });
-                            
-                            // Mango için özel screen properties
-                            Object.defineProperty(screen, 'width', { get: () => 1920 });
-                            Object.defineProperty(screen, 'height', { get: () => 1080 });
-                            Object.defineProperty(screen, 'availWidth', { get: () => 1920 });
-                            Object.defineProperty(screen, 'availHeight', { get: () => 1040 });
-                        """)
-                        
-                        # Mango için ek bekleme
-                        await page.wait_for_timeout(3000)
-                        
-                    elif "zara.com" in url:
-                        await page.goto("https://www.zara.com/tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "bershka.com" in url:
-                        await page.goto("https://www.bershka.com/tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "boyner.com.tr" in url:
-                        await page.goto("https://www.boyner.com.tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "pullandbear.com" in url:
-                        await page.goto("https://www.pullandbear.com/tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "lesbenjamins.com" in url:
-                        await page.goto("https://lesbenjamins.com/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "wwfmarket.com" in url:
-                        await page.goto("https://wwfmarket.com/tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "spx.com.tr" in url:
-                        await page.goto("https://www.spx.com.tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                    elif "sportime.com.tr" in url:
-                        await page.goto("https://sportime.com.tr/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(3000)
-                except Exception as e:
-                    print(f"[DEBUG] Site-specific navigation hatası: {e}")
-                    pass
-                
-                # Ürün sayfasına git - Boyner'deki başarılı timeout
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                await page.wait_for_timeout(5000)
-                
-                # SPX.com.tr için ekstra bekleme (JavaScript yüklenmesi için)
-                if "spx.com.tr" in url:
-                    await page.wait_for_timeout(5000)
-                    # Fiyat elementinin yüklenmesini bekle
+                if "mango.com" in url:
+                    print(f"[DEBUG] Mango için özel navigation başlıyor")
                     try:
-                        await page.wait_for_selector('[class*="price"], .price, [data-price]', timeout=10000)
+                        await page.goto("https://shop.mango.com/tr", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.wait_for_timeout(wait_time)
+                    except:
+                        pass
+                elif "zara.com" in url:
+                    try:
+                        await page.goto("https://www.zara.com/tr/", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.wait_for_timeout(wait_time)
+                    except:
+                        pass
+                elif "bershka.com" in url:
+                    try:
+                        await page.goto("https://www.bershka.com/tr/", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.wait_for_timeout(wait_time)
+                    except:
+                        pass
+                elif "pullandbear.com" in url:
+                    try:
+                        await page.goto("https://www.pullandbear.com/tr/", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.wait_for_timeout(wait_time)
+                    except:
+                        pass
+                elif "lesbenjamins.com" in url:
+                    try:
+                        await page.goto("https://lesbenjamins.com/", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.wait_for_timeout(wait_time)
                     except:
                         pass
                 
-                # Sportime.com.tr için ekstra bekleme (JavaScript yüklenmesi için)
-                if "sportime.com.tr" in url:
-                    await page.wait_for_timeout(5000)
-                    # Fiyat elementinin yüklenmesini bekle
+                print(f"[DEBUG] Sayfa yükleniyor: {url}")
+                page_load_timeout = get_timeout("page_load")
+                response = await page.goto(url, timeout=page_load_timeout, wait_until='domcontentloaded')
+                
+                # Sayfa yüklenme durumunu kontrol et
+                if response:
+                    print(f"[DEBUG] Sayfa yanıt kodu: {response.status}")
+                
+                # Pull&Bear için özel işlemler
+                if "pullandbear.com" in url:
+                    print("[DEBUG] Pull&Bear sayfası için özel bekleme ve scroll...")
+                    
+                    # Çerezleri kabul et
+                    element_wait_timeout = get_timeout("element_wait")
                     try:
-                        await page.wait_for_selector('[class*="price"], .price, [data-price], span.price', timeout=10000)
+                        await page.click('#onetrust-accept-btn-handler', timeout=element_wait_timeout)
+                        print("[DEBUG] Çerezler kabul edildi")
                     except:
                         pass
-                
-                # Altınyıldız Classics için ekstra bekleme (Görsellerin yüklenmesi için)
-                if "altinyildizclassics.com" in url:
-                    await page.wait_for_timeout(5000)
-                    # Görsel elementlerinin yüklenmesini bekle
+                        
+                    # Sayfayı yavaşça aşağı kaydır (Lazy load tetiklemek için)
+                    scroll_wait = 1000
+                    for i in range(5):
+                        await page.evaluate(f"window.scrollBy(0, 500)")
+                        await page.wait_for_timeout(scroll_wait)
+                    
+                    # Sayfanın en üstüne geri dön
+                    await page.evaluate("window.scrollTo(0, 0)")
+                    await page.wait_for_timeout(scroll_wait)
+                    
+                    # Debug için HTML kaydet
                     try:
-                        await page.wait_for_selector('img[src*="altinyildiz"], img[srcset*="altinyildiz"], img[data-src*="altinyildiz"]', timeout=10000)
-                    except:
-                        pass
-                
-                # Sayfanın tam yüklenmesini bekle - Boyner'deki başarılı yaklaşım
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=20000)
-                except:
-                    pass
-                
-                # Ek bekleme - Boyner'deki başarılı süre
-                await page.wait_for_timeout(3000)
-                
-                # Site-specific konfigürasyonu al ve veri çek
-                site_config = get_site_config(url)
-                if site_config:
-                    print(f"[DEBUG] Site-specific konfigürasyon kullanılıyor")
-                    site_title, site_price, site_old_price, site_image = await extract_with_site_config(page, url, site_config)
+                        import os
+                        debug_dir = os.path.join(os.getcwd(), 'static', 'debug')
+                        os.makedirs(debug_dir, exist_ok=True)
+                        await page.screenshot(path=os.path.join(debug_dir, 'pullandbear_latest.png'), full_page=True)
+                        with open(os.path.join(debug_dir, 'pullandbear_latest.html'), 'w', encoding='utf-8') as f:
+                            f.write(await page.content())
+                        print("[DEBUG] Debug dosyaları kaydedildi")
+                    except Exception as e:
+                        print(f"[ERROR] Debug kaydetme hatası: {e}")
+
                 else:
-                    site_title, site_price, site_old_price, site_image = None, None, None, None
+                    # Diğer siteler için standart bekleme
+                    network_idle_timeout = get_timeout("network_idle")
+                    try:
+                        await page.wait_for_load_state('networkidle', timeout=network_idle_timeout)
+                    except:
+                        pass
+
+            except Exception as e:
+                print(f"[ERROR] Sayfa yükleme hatası: {e}")
+                # Devam etmeye çalış
+                
+            # Ek bekleme (standardized)
+            default_wait = 3000
+            await page.wait_for_timeout(default_wait)
+            
+            # Site-specific konfigürasyonu al ve veri çek
+            site_config = get_site_config(url)
+            if site_config:
+                print(f"[DEBUG] Site-specific konfigürasyon kullanılıyor")
+                site_title, site_price, site_old_price, site_image = await extract_with_site_config(page, url, site_config)
+            else:
+                site_title, site_price, site_old_price, site_image = None, None, None, None
                 
                 # Universal scraper'ı kullan (site-specific yoksa veya eksik veri varsa)
                 if UNIVERSAL_SCRAPER_AVAILABLE and universal_scraper:
@@ -4479,9 +4766,6 @@ async def scrape_product(url):
                 }
                 set_cached_result(url, result)
                 return result
-                
-            finally:
-                await browser.close()
 
     except Exception as e:
         print(f"[HATA] Scraping başarısız: {e}")
@@ -4930,14 +5214,20 @@ def add_product():
             
             # Ürün adı kontrolü
             product_name = product_data.get('name') or product_data.get('title', '')
+            print(f"[DEBUG] add_product - Çekilen ürün adı: {product_name}")
+            
             if not product_name or len(product_name.strip()) == 0:
-                flash("Ürün adı alınamadı. Lütfen farklı bir link deneyin.", "error")
-                return redirect(url_for("dashboard"))
+                print("[UYARI] Ürün adı boş, varsayılan isim atanıyor")
+                product_name = "Ürün Başlığı Bulunamadı"
+                # flash("Ürün adı alınamadı. Lütfen farklı bir link deneyin.", "error")
+                # return redirect(url_for("dashboard"))
             
             # Ürünü oluştur
             product_images = product_data.get('images', [])
             if not product_images and product_data.get('image'):
                 product_images = [product_data.get('image')]
+            
+            print(f"[DEBUG] Ürün oluşturuluyor: {product_name}, Fiyat: {product_data.get('price')}")
             
             product = Product.create(
                     current_user.id,

@@ -12,6 +12,9 @@ RUN playwright install chromium
 # Copy application code
 COPY . .
 
+# Make startup script executable
+RUN chmod +x start.sh
+
 # Expose port
 EXPOSE 5000
 
@@ -19,6 +22,7 @@ EXPOSE 5000
 ENV PORT=5000
 ENV PYTHONUNBUFFERED=1
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the application with Gunicorn via startup script
+# The script handles PORT environment variable from Render.com
+CMD ["./start.sh"]
 
