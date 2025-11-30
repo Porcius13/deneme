@@ -6005,7 +6005,8 @@ if __name__ == "__main__":
     
     # Port ayarı - ortam değişkeninden veya varsayılan 8080
     port = int(os.environ.get('PORT', 8080))
-    host = os.environ.get('HOST', '0.0.0.0')
+    # Windows'ta localhost için 127.0.0.1 kullan
+    host = os.environ.get('HOST', '127.0.0.1')
     
     print(f"[INFO] Uygulama başlatılıyor...")
     print(f"[INFO] Host: {host}")
