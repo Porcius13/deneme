@@ -451,7 +451,7 @@
                                         {% if collection.created_at.strftime %}
                                             {{ collection.created_at.strftime('%d.%m.%Y') }}
                                         {% else %}
-                                            {{ collection.created_at[:10] }}
+                                            {{ str(collection.created_at)[:10] }}
                                         {% endif %}
                                     {% else %}
                                         N/A

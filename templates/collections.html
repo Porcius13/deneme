@@ -449,8 +449,17 @@
                     {% endif %}
                     <div class="collection-meta">
                         <span class="collection-count">{{ collection.product_count }} ÜRÜN</span>
-                        <span class="collection-date">{{ collection.created_at[:10] if collection.created_at else 'N/A'
-                            }}</span>
+                        <span class="collection-date">
+                            {% if collection.created_at %}
+                                {% if collection.created_at.strftime %}
+                                    {{ collection.created_at.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    {{ str(collection.created_at)[:10] }}
+                                {% endif %}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </span>
                     </div>
                 </div>
                 <div class="collection-actions">

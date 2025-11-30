@@ -470,7 +470,17 @@
                     <div class="stat-label">Ürün</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-number">{{ user.created_at[:10] if user.created_at else 'N/A' }}</div>
+                    <div class="stat-number">
+                        {% if user.created_at %}
+                            {% if user.created_at.strftime %}
+                                {{ user.created_at.strftime('%Y-%m-%d') }}
+                            {% else %}
+                                {{ str(user.created_at)[:10] }}
+                            {% endif %}
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </div>
                     <div class="stat-label">Katılım</div>
                 </div>
             </div>
@@ -490,7 +500,17 @@
                             {% endif %}
                             <div class="collection-meta">
                                 <span class="collection-count">{{ collection.product_count }} ürün</span>
-                                <span class="collection-date">{{ collection.created_at[:10] if collection.created_at else 'N/A' }}</span>
+                                <span class="collection-date">
+                                    {% if collection.created_at %}
+                                        {% if collection.created_at.strftime %}
+                                            {{ collection.created_at.strftime('%Y-%m-%d') }}
+                                        {% else %}
+                                            {{ str(collection.created_at)[:10] }}
+                                        {% endif %}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
                             </div>
                             <a href="/collection/{{ collection.share_url }}" class="view-btn">Görüntüle</a>
                         </div>
